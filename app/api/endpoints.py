@@ -53,13 +53,25 @@ async def list_items(
     if media_type and media_type != "all":
         conditions.append(MediaItem.media_type == media_type)
     if language:
-        conditions.append(MediaItem.language.ilike(f"%{language}%"))
+        if "," in language:
+            languages = language.split(",")
+            conditions.append(MediaItem.language.in_(languages))
+        else:
+            conditions.append(MediaItem.language.ilike(f"%{language}%"))
     if platform:
-        conditions.append(MediaItem.platform.ilike(f"%{platform}%"))
+        if "," in platform:
+            platforms = platform.split(",")
+            conditions.append(MediaItem.platform.in_(platforms))
+        else:
+            conditions.append(MediaItem.platform.ilike(f"%{platform}%"))
     if genres:
         # For JSON array, check if genre is contained in the array
         # Use database-agnostic string search in JSON
-        conditions.append(MediaItem.genres.like(f"%{genres}%"))
+        if "," in genres:
+            genres_list = genres.split(",")
+            conditions.append(MediaItem.genres.contains(genres_list))
+        else:
+            conditions.append(MediaItem.genres.like(f"%{genres}%"))
     if q:
         conditions.append(MediaItem.title.ilike(f"%{q}%"))
 

@@ -1,5 +1,5 @@
-from pydantic import BaseModel, HttpUrl, ConfigDict, Field, field_validator
-from typing import List, Optional, Generic, TypeVar, Any
+from pydantic import BaseModel, ConfigDict, Field
+from typing import List, Optional, Generic, TypeVar
 from datetime import date, datetime
 from app.db.models import MediaType, MediaStatus
 
@@ -39,37 +39,42 @@ class ListResponseModel(BaseModel, Generic[T]):
 
 
 class MediaItemBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500)
-    year: Optional[int] = Field(None, ge=1800, le=2100)
+    """
+    Base schema with validation removed to support messy scraped data.
+    URL fields are strings to prevent validation errors on malformed links.
+    """
+
+    title: str
+    year: Optional[int] = None
     media_type: MediaType
     status: Optional[MediaStatus] = MediaStatus.NEW
-    poster_url: Optional[HttpUrl] = None
-    backdrop_url: Optional[HttpUrl] = None
-    overview: Optional[str] = Field(None, max_length=2000)
-    language: Optional[str] = Field(None, min_length=2, max_length=5)
-    platform: Optional[str] = Field(None, max_length=100)
-    tmdb_id: Optional[int] = Field(None, gt=0)
-    imdb_id: Optional[str] = Field(None, pattern=r"^tt\d{7,8}$")
-    genres: List[str] = Field(default_factory=list)
-    binged_url: Optional[HttpUrl] = None
+    poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
+    overview: Optional[str] = None
+    language: Optional[str] = None
+    platform: Optional[str] = None
+    tmdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
+    genres: List[str] = []
+    binged_url: Optional[str] = None
 
 
 class MediaItemUpdate(BaseModel):
-    """Used for PATCH requests - all fields optional"""
+    """Used for PATCH requests - all fields optional and unvalidated"""
 
-    title: Optional[str] = Field(None, min_length=1, max_length=500)
-    year: Optional[int] = Field(None, ge=1800, le=2100)
+    title: Optional[str] = None
+    year: Optional[int] = None
     media_type: Optional[MediaType] = None
     status: Optional[MediaStatus] = None
-    poster_url: Optional[HttpUrl] = None
-    backdrop_url: Optional[HttpUrl] = None
-    overview: Optional[str] = Field(None, max_length=2000)
-    language: Optional[str] = Field(None, min_length=2, max_length=5)
-    platform: Optional[str] = Field(None, max_length=100)
-    tmdb_id: Optional[int] = Field(None, gt=0)
-    imdb_id: Optional[str] = Field(None, pattern=r"^tt\d{7,8}$")
+    poster_url: Optional[str] = None
+    backdrop_url: Optional[str] = None
+    overview: Optional[str] = None
+    language: Optional[str] = None
+    platform: Optional[str] = None
+    tmdb_id: Optional[int] = None
+    imdb_id: Optional[str] = None
     genres: Optional[List[str]] = None
-    binged_url: Optional[HttpUrl] = None
+    binged_url: Optional[str] = None
 
 
 class MediaItemResponse(MediaItemBase):
