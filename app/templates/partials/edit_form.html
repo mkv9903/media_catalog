@@ -5,7 +5,7 @@
             <span class="text-xs text-gray-500 font-mono">ID: {{ item.id }}</span>
         </div>
         
-        <form hx-put="/dashboard/item/{{ item.id }}" 
+        <form hx-post="/dashboard/item/{{ item.id }}" 
               hx-target="#modal-content"
               class="space-y-4">
             
@@ -88,16 +88,18 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-400">Type</label>
                     <select name="media_type" class="mt-1 block w-full bg-gray-700 border-none rounded text-white px-3 py-2 focus:ring-2 focus:ring-blue-500">
-                        <option value="movie" {% if item.media_type.value == 'movie' %}selected{% endif %}>Movie</option>
-                        <option value="series" {% if item.media_type.value == 'series' %}selected{% endif %}>Series</option>
+                        <!-- Fixed: Removed .value check -->
+                        <option value="movie" {% if item.media_type == 'movie' %}selected{% endif %}>Movie</option>
+                        <option value="series" {% if item.media_type == 'series' %}selected{% endif %}>Series</option>
                     </select>
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-400">Status</label>
                     <select name="status" class="mt-1 block w-full bg-gray-700 border-none rounded text-white px-3 py-2 focus:ring-2 focus:ring-blue-500">
-                        <option value="new" {% if item.status.value == 'new' %}selected{% endif %}>New</option>
-                        <option value="approved" {% if item.status.value == 'approved' %}selected{% endif %}>Approved</option>
-                        <option value="error" {% if item.status.value == 'error' %}selected{% endif %}>error</option>
+                        <!-- Fixed: Removed .value check -->
+                        <option value="new" {% if item.status == 'new' %}selected{% endif %}>New</option>
+                        <option value="approved" {% if item.status == 'approved' %}selected{% endif %}>Approved</option>
+                        <option value="error" {% if item.status == 'error' %}selected{% endif %}>error</option>
                     </select>
                 </div>
             </div>

@@ -1,4 +1,5 @@
 #Core Framework
+pydantic-settings>=2.0.0
 
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
@@ -14,7 +15,6 @@ asyncpg>=0.29.0
 #Scraping & Metadata
 
 aiohttp>=3.9.0
-beautifulsoup4>=4.12.0
 
 #Automation & Utilities
 

@@ -11,12 +11,12 @@
         </button>
         
         <!-- Delete Button with Loading State -->
+        <!-- Fixed: Removed @click="$dispatch('close-modal')" to prevent race condition -->
         <button class="bg-gray-700 hover:bg-red-900 p-2 rounded text-red-400 disabled:opacity-50"
                 hx-delete="/dashboard/item/{{ item.id }}"
                 hx-confirm="Are you sure you want to delete '{{ item.title }}'?"
                 hx-indicator="#delete-spinner"
                 hx-disabled-elt="this"
-                @click="$dispatch('close-modal')" 
                 title="Delete Item">
             
             <div class="flex items-center gap-2">
@@ -58,7 +58,5 @@
         
         <p class="text-gray-300 mb-8 leading-relaxed text-lg">{{ item.overview }}</p>
 
-    </div>
-</div>
     </div>
 </div>

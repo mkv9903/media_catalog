@@ -172,7 +172,7 @@ async def sync_item_metadata(
     )
 
 
-@router.put("/dashboard/item/{item_id}", response_class=HTMLResponse)
+@router.post("/dashboard/item/{item_id}", response_class=HTMLResponse)
 async def update_item(
     item_id: int,
     request: Request,
@@ -197,6 +197,7 @@ async def update_item(
         logger.warning(f"Cannot update item {item_id}: not found")
         return HTMLResponse("Error: Item not found")
 
+    # Update Fields
     item.title = title
     item.year = year
     item.media_type = media_type
@@ -208,10 +209,24 @@ async def update_item(
     item.overview = overview
 
     await db.commit()
+
+    # Force refresh the item object to ensure we display the latest state
+    await db.refresh(item)
+
     logger.info(
         f"Successfully updated item via web interface: {item.title} (ID: {item_id})"
     )
-    return await get_item_detail(item_id, request, db)
+
+    # Return the detail modal HTML
+    response = templates.TemplateResponse(
+        "partials/detail_modal.html",
+        {"request": request, "item": item},
+    )
+
+    # Trigger HTMX to refresh the background grid
+    response.headers["HX-Trigger"] = "refreshGrid"
+
+    return response
 
 
 @router.delete("/dashboard/item/{item_id}", response_class=HTMLResponse)
@@ -229,4 +244,6 @@ async def delete_item(item_id: int, db: AsyncSession = Depends(get_db)):
         )
     else:
         logger.warning(f"Cannot delete item {item_id}: not found")
-    return Response(content="", headers={"HX-Trigger": "refreshGrid"})
+
+    # Return empty content with trigger to close modal and refresh grid
+    return Response(content="", headers={"HX-Trigger": "refreshGrid, closeModal"})
