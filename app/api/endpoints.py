@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import List, Optional, Dict, Any
 import logging
 
@@ -48,33 +48,53 @@ async def list_items(
     count_stmt = select(func.count()).select_from(MediaItem)
 
     conditions = []
+
+    # 1. Status (Exact Match, supports comma-separated)
     if status and status != "all":
-        conditions.append(MediaItem.status == status)
+        status_list = [s.strip() for s in status.split(",") if s.strip()]
+        if status_list:
+            conditions.append(MediaItem.status.in_(status_list))
+
+    # 2. Media Type (Exact Match, supports comma-separated)
     if media_type and media_type != "all":
-        conditions.append(MediaItem.media_type == media_type)
+        type_list = [t.strip() for t in media_type.split(",") if t.strip()]
+        if type_list:
+            conditions.append(MediaItem.media_type.in_(type_list))
+
+    # 3. Language (Fuzzy Match, supports comma-separated)
     if language:
-        if "," in language:
-            languages = language.split(",")
-            conditions.append(MediaItem.language.in_(languages))
-        else:
-            conditions.append(MediaItem.language.ilike(f"%{language}%"))
+        # Normalize to list and strip
+        lang_list = [l.strip() for l in language.split(",") if l.strip()]
+        if lang_list:
+            # Use OR + ILIKE to maintain consistency with single-value fuzzy search
+            # Matches if ANY of the provided languages match
+            conditions.append(
+                or_(*[MediaItem.language.ilike(f"%{l}%") for l in lang_list])
+            )
+
+    # 4. Platform (Fuzzy Match, supports comma-separated)
     if platform:
-        if "," in platform:
-            platforms = platform.split(",")
-            conditions.append(MediaItem.platform.in_(platforms))
-        else:
-            conditions.append(MediaItem.platform.ilike(f"%{platform}%"))
+        plat_list = [p.strip() for p in platform.split(",") if p.strip()]
+        if plat_list:
+            # Matches if ANY of the provided platforms match
+            conditions.append(
+                or_(*[MediaItem.platform.ilike(f"%{p}%") for p in plat_list])
+            )
+
+    # 5. Genres (JSON Containment)
     if genres:
-        # For JSON array, check if genre is contained in the array
-        # Use database-agnostic string search in JSON
-        if "," in genres:
-            genres_list = genres.split(",")
+        # Use .contains() for JSON/JSONB compatibility.
+        # Note: .contains() works as an AND operator for the list (Item must have ALL listed genres).
+        # We strip values to ensure "Action, Comedy" becomes ["Action", "Comedy"]
+        genres_list = [g.strip() for g in genres.split(",") if g.strip()]
+        if genres_list:
             conditions.append(MediaItem.genres.contains(genres_list))
-        else:
-            conditions.append(MediaItem.genres.like(f"%{genres}%"))
+
+    # 6. General Search
     if q:
         conditions.append(MediaItem.title.ilike(f"%{q}%"))
 
+    # Apply conditions
     for cond in conditions:
         stmt = stmt.where(cond)
         count_stmt = count_stmt.where(cond)
