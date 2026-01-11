@@ -1,0 +1,55 @@
+{% for item in items %}
+<div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden hover:ring-2 hover:ring-blue-500 transition cursor-pointer group relative"
+     hx-get="/dashboard/item/{{ item.id }}"
+     hx-target="#modal-content"
+     @click="$dispatch('open-modal')">
+    
+    <div class="relative aspect-[2/3]">
+        {% if item.poster_url %}
+        <img src="{{ item.poster_url }}" alt="{{ item.title }}" class="w-full h-full object-cover">
+        {% else %}
+        <div class="w-full h-full bg-gray-700 flex items-center justify-center text-gray-500">
+            No Poster
+        </div>
+        {% endif %}
+        
+        <!-- Status Badge -->
+        <span class="absolute top-2 right-2 px-2 py-1 text-xs font-bold rounded 
+            {% if item.status.value == 'available' %} bg-green-500 text-white
+            {% elif item.status.value == 'approved' %} bg-blue-500 text-white
+            {% elif item.status.value == 'new' %} bg-yellow-500 text-black
+            {% elif item.status.value == 'processing' %} bg-orange-500 text-white
+            {% else %} bg-gray-600 text-white {% endif %}">
+            {{ item.status.value | upper }}
+        </span>
+    </div>
+    
+    <div class="p-3">
+        <h3 class="font-bold text-sm truncate" title="{{ item.title }}">{{ item.title }}</h3>
+        <div class="flex justify-between text-xs text-gray-400 mt-1">
+            <span>{{ item.year }}</span>
+            <span>{{ item.streaming_date }}</span>
+        </div>
+    </div>
+</div>
+{% else %}
+    <!-- Only show 'No items' if it's the very first page load (offset 0) and list is empty -->
+    {% if not next_offset and not request.query_params.get('offset') or request.query_params.get('offset') == '0' %}
+    <div class="col-span-full text-center py-10 text-gray-500">
+        No items found matching filters.
+    </div>
+    {% endif %}
+{% endfor %}
+
+<!-- Load More Button Logic -->
+{% if next_offset %}
+<div id="load-more-btn" class="col-span-full text-center py-4">
+    <!-- IMPORTANT: Include current filter values in the next request -->
+    <button class="bg-gray-700 hover:bg-gray-600 text-white px-6 py-2 rounded shadow transition"
+            hx-get="/dashboard/items?offset={{ next_offset }}&status={{ current_status }}&media_type={{ current_type }}&q={{ current_q }}"
+            hx-target="#load-more-btn"
+            hx-swap="outerHTML">
+        Load More
+    </button>
+</div>
+{% endif %}

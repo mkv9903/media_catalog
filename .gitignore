@@ -1,0 +1,16 @@
+__pycache__
+*.__pycache__
+*test*
+run_test.py
+.venv
+data
+*.bak
+*.*.bak
+docker-compose.yml
+pgdata
+.env
+frontend/node_modules
+frontend
+frontend*
+check*
+*cache

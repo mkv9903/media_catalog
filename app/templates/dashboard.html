@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex flex-col space-y-4">
+    
+    <!-- Controls Header -->
+    <div class="bg-gray-800 p-4 rounded-lg shadow flex flex-wrap gap-4 items-center justify-between">
+        <h1 class="text-2xl font-bold">Library</h1>
+        
+        <!-- Unified Filter Form -->
+        <form id="filter-form" 
+              hx-get="/dashboard/items" 
+              hx-target="#media-grid" 
+              hx-indicator="#loading"
+              hx-trigger="change, keyup delay:500ms from:input, submit, refreshGrid from:body"
+              onsubmit="return false;"
+              class="flex gap-4 flex-wrap items-center">
+            
+            <!-- Search -->
+            <input type="text" 
+                   name="q"
+                   class="bg-gray-700 border-none rounded px-4 py-2 text-white placeholder-gray-400 focus:ring-2 focus:ring-blue-500"
+                   placeholder="Search..."
+                   value="{{ current_q or '' }}">
+            
+            <!-- Type Filter -->
+            <select name="media_type" 
+                    class="bg-gray-700 border-none rounded px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                <option value="all" {% if current_type == 'all' %}selected{% endif %}>All Types</option>
+                <option value="movie" {% if current_type == 'movie' %}selected{% endif %}>Movies</option>
+                <option value="series" {% if current_type == 'series' %}selected{% endif %}>Series</option>
+            </select>
+
+            <!-- Status Filter -->
+            <select name="status" 
+                    class="bg-gray-700 border-none rounded px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 cursor-pointer">
+                <option value="all" {% if current_status == 'all' %}selected{% endif %}>All Status</option>
+                <option value="new" {% if current_status == 'new' %}selected{% endif %}>New</option>
+                <option value="approved" {% if current_status == 'approved' %}selected{% endif %}>Approved</option>
+                <option value="processing" {% if current_status == 'processing' %}selected{% endif %}>Processing</option>
+                <option value="available" {% if current_status == 'available' %}selected{% endif %}>Available</option>
+                <option value="ignored" {% if current_status == 'ignored' %}selected{% endif %}>Ignored</option>
+            </select>
+        </form>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="htmx-indicator text-center py-4 text-blue-400">
+        <div class="flex items-center justify-center gap-2">
+            <svg class="animate-spin h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span>Searching Library...</span>
+        </div>
+    </div>
+
+    <!-- Grid Container -->
+    <!-- Listens for 'load' on page entry and 'refreshGrid' from body for automatic updates -->
+    <div id="media-grid"
+         hx-get="/dashboard/items"
+         hx-trigger="load, refreshGrid from:body"
+         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 pb-10">
+         <!-- Content loaded via HTMX -->
+    </div>
+
+</div>
+{% endblock %}
