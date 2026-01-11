@@ -1,6 +1,8 @@
 import logging
 import re
 import json
+import asyncio
+import aiohttp
 from sqlalchemy.future import select
 from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +18,7 @@ class IngestionService:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.scraper = BingedScraper()
-        self.metadata = MetadataService()
+        self.metadata = None
 
     def _parse_safe_year(self, year_val) -> int:
         """Robustly extracts a year from potentially messy Binged data."""
@@ -46,23 +48,30 @@ class IngestionService:
     async def run_daily_scan(self):
         """
         Orchestrates the ingestion process:
-        1. Scrape raw data -> ScrapedItems
+        1. Scrape raw data -> ScrapedItems (Concurrent)
         2. Process pending items -> MediaItems
         """
         logger.info("Starting Daily Ingestion...")
         logger.debug("Initializing scraper and metadata services")
 
-        # 1. Scrape Phase (Fill Buffer)
-        await self._scrape_phase(MediaType.MOVIE)
-        await self._scrape_phase(MediaType.SERIES)
+        # Create a shared session for this entire job
+        async with aiohttp.ClientSession() as session:
+            # Initialize metadata service with the shared session
+            self.metadata = MetadataService(session=session)
 
-        # 2. Processing Phase (Promote All)
-        await self.process_scraped_items()
+            # 1. Scrape Phase (Fill Buffer) - Pass session
+            await self._scrape_phase(session, MediaType.MOVIE)
+            await self._scrape_phase(session, MediaType.SERIES)
+
+            # 2. Processing Phase (Promote All)
+            await self.process_scraped_items()
 
         logger.info("Ingestion Cycle Completed.")
 
-    async def _scrape_phase(self, media_type: MediaType):
-        """Runs the scraper and fills ScrapedItems table."""
+    async def _scrape_phase(
+        self, session: aiohttp.ClientSession, media_type: MediaType
+    ):
+        """Runs the scraper and fills ScrapedItems table concurrently."""
         logger.debug(f"Starting scrape phase for {media_type.value}")
         # Pass media_type to get correct count for maintenance logic
         count = await self._get_db_count(ScrapedItem, media_type)
@@ -82,25 +91,45 @@ class IngestionService:
         category_str = "movie" if media_type == MediaType.MOVIE else "series"
         logger.debug(f"Using category string: {category_str}")
 
-        for page_num in range(max_pages):
-            logger.debug(
-                f"Scraping page {page_num + 1}/{max_pages} for {media_type.value}"
-            )
-            items = await self.scraper.scrape_page(page_num, category_str)
-            if not items:
-                logger.warning(
-                    f"No items found on page {page_num + 1}, stopping scrape"
+        # Concurrency Control: Binged might block if we hit it too hard
+        # Using a semaphore to limit concurrent page fetches
+        sem = asyncio.Semaphore(3)
+
+        async def fetch_page_safe(p_num):
+            async with sem:
+                logger.debug(
+                    f"Scraping page {p_num + 1}/{max_pages} for {media_type.value}"
                 )
-                break
+                return await self.scraper.scrape_page(session, p_num, category_str)
 
-            activity = await self._save_raw_batch(items, media_type)
-            logger.debug(f"Page {page_num + 1}: saved {activity} new/updated items")
+        tasks = [fetch_page_safe(i) for i in range(max_pages)]
 
+        # Run all page scrapes concurrently
+        results = await asyncio.gather(*tasks)
+
+        # Flatten results (results is a list of lists)
+        total_items_found = 0
+        new_items_saved = 0
+
+        for page_items in results:
+            if not page_items:
+                continue
+
+            total_items_found += len(page_items)
+            activity = await self._save_raw_batch(page_items, media_type)
+            new_items_saved += activity
+            logger.debug(f"Saved {activity} items from a page")
+
+            # Maintenance mode optimization: stop if we find a page with 0 updates
+            # Note: This is slightly less effective in concurrent mode as we might have already fetched next pages
             if mode == "MAINTENANCE" and activity == 0:
-                logger.info(
-                    "No new/updated raw items found. Stopping maintenance scrape."
-                )
-                break
+                logger.info("Maintenance Scan: No new items found in this batch.")
+                # We don't break here because other concurrent tasks are running,
+                # but we acknowledge we aren't finding new stuff.
+
+        logger.info(
+            f"Scrape Phase Summary ({media_type.value}): Found {total_items_found} items, Saved/Updated {new_items_saved}"
+        )
 
     async def _save_raw_batch(self, items: list, media_type: MediaType) -> int:
         """Upserts raw items into ScrapedItem table. Returns count of changes."""
@@ -209,6 +238,7 @@ class IngestionService:
                     title = scraped.title
                     year = scraped.year
 
+                    # METADATA MATCHING - Using injected session in metadata service
                     match_data = None
                     if binged_imdb:
                         match_data = await self.metadata.get_details_by_imdb(

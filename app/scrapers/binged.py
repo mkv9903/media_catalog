@@ -94,16 +94,17 @@ class BingedScraper:
             "User-Agent": random.choice(self.USER_AGENTS),
         }
 
-    async def _fetch(self, session, url, method="GET", data=None, retries=3):
+    async def _fetch(
+        self, session: aiohttp.ClientSession, url, method="GET", data=None, retries=3
+    ):
         """
-        Robust fetch with exponential backoff for retries.
-        Handles rate limiting (429) with longer delays.
+        Robust fetch with exponential backoff for retries using provided session.
         """
         for attempt in range(1, retries + 1):
             try:
                 if method == "POST":
                     async with session.post(
-                        url, headers=self.headers, data=data, timeout=10
+                        url, headers=self.headers, data=data, timeout=15
                     ) as resp:
                         if resp.status == 200:
                             return await resp.json()
@@ -121,7 +122,7 @@ class BingedScraper:
                             return None
                 else:
                     async with session.get(
-                        url, headers=self.headers, timeout=10
+                        url, headers=self.headers, timeout=15
                     ) as resp:
                         if resp.status == 200:
                             if "wp-json" in url:
@@ -160,10 +161,11 @@ class BingedScraper:
         return cleaned.strip()
 
     async def scrape_page(
-        self, page_number: int, category: str = "movie"
+        self, session: aiohttp.ClientSession, page_number: int, category: str = "movie"
     ) -> List[Dict]:
         """
         Scrapes a SINGLE page (50 items) defined by page_number (0-indexed).
+        Uses the provided session for better performance.
         """
         logger.debug(f"Starting scrape for page {page_number}, category: {category}")
         results = []
@@ -176,106 +178,103 @@ class BingedScraper:
             f"Scraping Page {page_number + 1} (Offset {start_offset}) | Cat: {category}"
         )
 
-        async with aiohttp.ClientSession() as session:
-            payload = {
-                "action": "mi_events_load_data",
-                "filters[category][]": binged_category,
-                "filters[mode]": "streaming-now",
-                "filters[genre][]": self.GENRE_ALLOWLIST,
-                "filters[platform][]": self.PLATFORM_ALLOWLIST,
-                "start": start_offset,
-                "length": 50,
-            }
-            logger.debug(f"AJAX payload: {payload}")
+        payload = {
+            "action": "mi_events_load_data",
+            "filters[category][]": binged_category,
+            "filters[mode]": "streaming-now",
+            "filters[genre][]": self.GENRE_ALLOWLIST,
+            "filters[platform][]": self.PLATFORM_ALLOWLIST,
+            "start": start_offset,
+            "length": 50,
+        }
+        logger.debug(f"AJAX payload: {payload}")
 
-            data = await self._fetch(session, self.BINGED_URL, "POST", payload)
-            if not data or "data" not in data:
-                logger.warning(f"No data returned for page {page_number}")
-                return []
+        data = await self._fetch(session, self.BINGED_URL, "POST", payload)
+        if not data or "data" not in data:
+            logger.warning(f"No data returned for page {page_number}")
+            return []
 
-            logger.debug(f"Received {len(data['data'])} items from AJAX")
-            for item in data["data"]:
-                # 1. GENRE FILTERING
-                genres_str = item.get("genre", "")
-                if genres_str:
-                    genres_lower = genres_str.lower()
-                    if any(bad in genres_lower for bad in self.GENRE_PARTIAL_BLOCKLIST):
-                        continue
-                    if any(
-                        g.strip() in self.GENRE_EXACT_BLOCKLIST
-                        for g in genres_lower.split(",")
-                    ):
-                        continue
+        logger.debug(f"Received {len(data['data'])} items from AJAX")
+        for item in data["data"]:
+            # 1. GENRE FILTERING
+            genres_str = item.get("genre", "")
+            if genres_str:
+                genres_lower = genres_str.lower()
+                if any(bad in genres_lower for bad in self.GENRE_PARTIAL_BLOCKLIST):
+                    continue
+                if any(
+                    g.strip() in self.GENRE_EXACT_BLOCKLIST
+                    for g in genres_lower.split(",")
+                ):
+                    continue
 
-                # Basic Info
-                title = item.get("title", "Unknown")
-                raw_url = item.get("link", "")
-                logger.debug(f"Processing item: {title}")
+            # Basic Info
+            title = item.get("title", "Unknown")
+            raw_url = item.get("link", "")
+            logger.debug(f"Processing item: {title}")
 
-                # EXTRACT LANGUAGES
-                languages = item.get("languages", "")
+            # EXTRACT LANGUAGES
+            languages = item.get("languages", "")
 
-                # Fetch details from new API
-                binged_imdb_id = None
-                item_id = item.get("id")
-                if item_id:
-                    logger.debug(f"Fetching IMDB for item ID {item_id}")
-                    await asyncio.sleep(0.5)  # Increased delay to avoid rate limits
-                    api_url = (
-                        f"https://www.binged.com/wp-json/binged-api/v1/movie/{item_id}"
-                    )
-                    detail_data = await self._fetch(session, api_url)
-                    if detail_data and "imdb" in detail_data:
-                        imdb_value = detail_data["imdb"]
-                        if imdb_value and imdb_value.strip():
-                            binged_imdb_id = imdb_value.strip()
-                            logger.debug(f"Found IMDB ID: {binged_imdb_id}")
-                        else:
-                            logger.debug("No IMDB ID found in API response")
+            # Fetch details from new API
+            binged_imdb_id = None
+            item_id = item.get("id")
+            if item_id:
+                logger.debug(f"Fetching IMDB for item ID {item_id}")
+                await asyncio.sleep(0.5)  # Increased delay to avoid rate limits
+                api_url = (
+                    f"https://www.binged.com/wp-json/binged-api/v1/movie/{item_id}"
+                )
+                detail_data = await self._fetch(session, api_url)
+                if detail_data and "imdb" in detail_data:
+                    imdb_value = detail_data["imdb"]
+                    if imdb_value and imdb_value.strip():
+                        binged_imdb_id = imdb_value.strip()
+                        logger.debug(f"Found IMDB ID: {binged_imdb_id}")
                     else:
-                        logger.warning(f"Failed to fetch API data for item {item_id}")
+                        logger.debug("No IMDB ID found in API response")
                 else:
-                    logger.warning(f"No item ID found for {title}")
+                    logger.warning(f"Failed to fetch API data for item {item_id}")
+            else:
+                logger.warning(f"No item ID found for {title}")
 
-                # Platform
-                platform_ids = item.get("platform", [])
-                platform_name = "Other"
-                if isinstance(platform_ids, list):
-                    for url in platform_ids:
-                        match = re.search(r"/(\d+)\.webp", url)
-                        if match and match.group(1) in self.PLATFORM_MAPPING:
-                            platform_name = self.PLATFORM_MAPPING[match.group(1)]
-                            break
+            # Platform
+            platform_ids = item.get("platform", [])
+            platform_name = "Other"
+            if isinstance(platform_ids, list):
+                for url in platform_ids:
+                    match = re.search(r"/(\d+)\.webp", url)
+                    if match and match.group(1) in self.PLATFORM_MAPPING:
+                        platform_name = self.PLATFORM_MAPPING[match.group(1)]
+                        break
 
-                # Extract Date
-                raw_date = (
-                    item.get("streaming-date")
-                    or item.get("release-date")
-                    or item.get("date")
-                )
-                streaming_date = None
-                if raw_date and isinstance(raw_date, str):
-                    date_formats = ["%d %b %Y", "%Y-%m-%d"]
-                    for fmt in date_formats:
-                        try:
-                            streaming_date = datetime.strptime(
-                                raw_date.strip(), fmt
-                            ).date()
-                            break
-                        except (ValueError, TypeError):
-                            continue
+            # Extract Date
+            raw_date = (
+                item.get("streaming-date")
+                or item.get("release-date")
+                or item.get("date")
+            )
+            streaming_date = None
+            if raw_date and isinstance(raw_date, str):
+                date_formats = ["%d %b %Y", "%Y-%m-%d"]
+                for fmt in date_formats:
+                    try:
+                        streaming_date = datetime.strptime(raw_date.strip(), fmt).date()
+                        break
+                    except (ValueError, TypeError):
+                        continue
 
-                results.append(
-                    {
-                        "title": self._clean_title(title),
-                        "year": item.get("release-year", 0),
-                        "binged_url": raw_url,
-                        "binged_imdb_id": binged_imdb_id,
-                        "platform": platform_name,
-                        "streaming_date": streaming_date,
-                        "languages": languages,  # Explicitly captured now
-                        "raw_data": item,
-                    }
-                )
+            results.append(
+                {
+                    "title": self._clean_title(title),
+                    "year": item.get("release-year", 0),
+                    "binged_url": raw_url,
+                    "binged_imdb_id": binged_imdb_id,
+                    "platform": platform_name,
+                    "streaming_date": streaming_date,
+                    "languages": languages,
+                    "raw_data": item,
+                }
+            )
 
         return results

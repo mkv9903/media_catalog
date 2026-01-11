@@ -2,6 +2,7 @@ import logging
 import aiohttp
 import asyncio
 from typing import Optional, Dict, Any
+from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.db.models import MediaType
 
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MetadataService:
-    def __init__(self):
+    def __init__(self, session: Optional[aiohttp.ClientSession] = None):
         if not settings.TMDB_API_KEY:
             logger.warning("TMDB_API_KEY is missing! Metadata enrichment will fail.")
 
@@ -17,12 +18,29 @@ class MetadataService:
             "Authorization": f"Bearer {settings.TMDB_API_KEY}",
             "Content-Type": "application/json;charset=utf-8",
         }
-        # Base throttling: 0.2s delay = ~5 requests/sec
+        self.external_session = session
         self.delay = 0.2
         self.cinemeta_url = "https://v3-cinemeta.strem.io/meta"
 
+    @asynccontextmanager
+    async def _get_session(self):
+        """
+        Context manager to yield a session.
+        Uses the external persistent session if available,
+        otherwise creates a temporary one for the scope of the block.
+        """
+        if self.external_session and not self.external_session.closed:
+            yield self.external_session
+        else:
+            async with aiohttp.ClientSession() as session:
+                yield session
+
     async def _fetch(
-        self, session, endpoint: str, params: Dict = None, retries: int = 3
+        self,
+        session: aiohttp.ClientSession,
+        endpoint: str,
+        params: Dict = None,
+        retries: int = 3,
     ) -> Optional[Dict]:
         """Robust TMDB fetcher."""
         url = f"{settings.TMDB_BASE_URL}{endpoint}"
@@ -72,12 +90,11 @@ class MetadataService:
         self, imdb_id: str, media_type: MediaType
     ) -> Optional[Dict[str, Any]]:
         """Fallback to Cinemeta (Stremio) if TMDB fails."""
-        # Cinemeta types: movie, series
         c_type = "movie" if media_type == MediaType.MOVIE else "series"
         url = f"{self.cinemeta_url}/{c_type}/{imdb_id}.json"
 
         logger.debug(f"Fetching Cinemeta data for IMDB ID: {imdb_id}, type: {c_type}")
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             try:
                 async with session.get(url, timeout=10) as resp:
                     if resp.status == 200:
@@ -119,7 +136,7 @@ class MetadataService:
         self, tmdb_id: int, media_type: MediaType
     ) -> Optional[Dict[str, Any]]:
         logger.debug(f"Getting details by TMDB ID: {tmdb_id}, type: {media_type.value}")
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             result = await self._format_result(session, {"id": tmdb_id}, media_type)
             if result:
                 logger.info(
@@ -136,7 +153,7 @@ class MetadataService:
         logger.debug(
             f"Getting details by IMDB ID: {imdb_id}, type: {media_type.value if media_type else None}"
         )
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             data = await self._fetch(
                 session, f"/find/{imdb_id}", {"external_source": "imdb_id"}
             )
@@ -184,7 +201,7 @@ class MetadataService:
         logger.debug(
             f"Searching TMDB by query: '{title}' ({year}), type: {media_type.value}"
         )
-        async with aiohttp.ClientSession() as session:
+        async with self._get_session() as session:
             params = {"query": title}
             if media_type == MediaType.MOVIE and year:
                 params["primary_release_year"] = year
@@ -232,7 +249,9 @@ class MetadataService:
             return abs(year - target_year) <= 1
         return year <= target_year
 
-    async def _format_result(self, session, item: Dict, media_type: MediaType) -> Dict:
+    async def _format_result(
+        self, session: aiohttp.ClientSession, item: Dict, media_type: MediaType
+    ) -> Dict:
         tmdb_id = item.get("id")
         logger.debug(
             f"Formatting result for TMDB ID: {tmdb_id}, type: {media_type.value}"
