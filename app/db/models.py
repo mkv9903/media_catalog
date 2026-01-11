@@ -10,7 +10,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
-from sqlalchemy import JSON  # Use generic JSON for cross-database compatibility
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB
 import enum
 
 Base = declarative_base()
@@ -52,8 +53,8 @@ class ScrapedItem(Base):
     platform = Column(String, nullable=True)
     streaming_date = Column(Date, nullable=True, index=True)
 
-    # Changed from JSON to JSONB for faster processing in Postgres
-    raw_data = Column(JSON, nullable=True)
+    # Use JSONB for PostgreSQL (faster indexing), fallback to JSON for SQLite
+    raw_data = Column(JSON().with_variant(JSONB, "postgresql"), nullable=True)
 
     scrape_status = Column(String, default=ScrapeStatus.PENDING)
     error_message = Column(String, nullable=True)
@@ -87,8 +88,8 @@ class MediaItem(Base):
     poster_url = Column(String, nullable=True)
     backdrop_url = Column(String, nullable=True)
 
-    # Changed from JSON to JSONB
-    genres = Column(JSON, default=[])
+    # Use JSONB for PostgreSQL, fallback to JSON for SQLite
+    genres = Column(JSON().with_variant(JSONB, "postgresql"), default=[])
 
     # Ingestion Source Info
     binged_url = Column(String, nullable=True)  # Link back to source if needed
