@@ -7,6 +7,7 @@ import logging
 from app.db.database import get_db
 from app.db.models import MediaItem, MediaStatus, MediaType
 from app.services.metadata import MetadataService
+from app.services.db import get_filtered_items  # Import shared logic
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,33 +42,21 @@ async def get_items_html(
     db: AsyncSession = Depends(get_db),
 ):
     """Returns the HTML partial for the media grid with filtering and search."""
-    logger.debug(
-        f"Fetching items HTML with filters: status={status}, media_type={media_type}, q={q}, limit={limit}, offset={offset}"
+
+    # Delegate to shared service
+    # Note: 'offset' in HTMX is mapped to 'skip' in logic
+    items, total = await get_filtered_items(
+        db=db,
+        skip=offset,
+        limit=limit,
+        status=status,
+        media_type=media_type,
+        q=q,
+        # We can also pass genres/platforms here later if we add UI filters for them
     )
-    stmt = select(MediaItem)
 
-    if status and status != "all":
-        try:
-            # Note: MediaStatus is now a string enum in DB but handled as string here mostly
-            stmt = stmt.where(MediaItem.status == status)
-        except ValueError:
-            pass
-
-    if media_type and media_type != "all":
-        stmt = stmt.where(MediaItem.media_type == media_type)
-
-    if q and q.strip():
-        stmt = stmt.where(MediaItem.title.ilike(f"%{q}%"))
-
-    stmt = stmt.order_by(
-        MediaItem.streaming_date.desc().nulls_last(), MediaItem.created_at.desc()
-    )
-    stmt = stmt.offset(offset).limit(limit)
-
-    result = await db.execute(stmt)
-    items = result.scalars().all()
     logger.info(
-        f"Returning {len(items)} items for HTML grid (offset={offset}, limit={limit})"
+        f"Dashboard: Returning {len(items)} items for HTML grid (offset={offset}, limit={limit})"
     )
 
     next_offset = offset + limit if len(items) == limit else None

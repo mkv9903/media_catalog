@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, or_
-from typing import List, Optional, Dict, Any
+from sqlalchemy import cast, String, or_
+from typing import Optional
 import logging
 
 from app.db.database import get_db
@@ -15,9 +15,9 @@ from app.schemas import (
     ListResponseModel,
     ResponseModel,
     MetaData,
-    SearchStreamResult,
 )
 from app.services.metadata import MetadataService
+from app.services.db import get_filtered_items  # Import shared logic
 
 logger = logging.getLogger(__name__)
 
@@ -39,82 +39,21 @@ async def list_items(
     db: AsyncSession = Depends(get_db),
 ):
     """List all media items with filtering and search."""
-    logger.debug(
-        f"Listing items with filters: skip={skip}, limit={limit}, status={status}, media_type={media_type}, language={language}, platform={platform}, genres={genres}, q={q}"
+
+    # Delegate to shared service
+    items, total = await get_filtered_items(
+        db=db,
+        skip=skip,
+        limit=limit,
+        status=status,
+        media_type=media_type,
+        language=language,
+        platform=platform,
+        genres=genres,
+        q=q,
     )
 
-    # Build Query
-    stmt = select(MediaItem)
-    count_stmt = select(func.count()).select_from(MediaItem)
-
-    conditions = []
-
-    # 1. Status (Exact Match, supports comma-separated)
-    if status and status != "all":
-        status_list = [s.strip() for s in status.split(",") if s.strip()]
-        if status_list:
-            conditions.append(MediaItem.status.in_(status_list))
-
-    # 2. Media Type (Exact Match, supports comma-separated)
-    if media_type and media_type != "all":
-        type_list = [t.strip() for t in media_type.split(",") if t.strip()]
-        if type_list:
-            conditions.append(MediaItem.media_type.in_(type_list))
-
-    # 3. Language (Fuzzy Match, supports comma-separated)
-    if language:
-        # Normalize to list and strip
-        lang_list = [l.strip() for l in language.split(",") if l.strip()]
-        if lang_list:
-            # Use OR + ILIKE to maintain consistency with single-value fuzzy search
-            # Matches if ANY of the provided languages match
-            conditions.append(
-                or_(*[MediaItem.language.ilike(f"%{l}%") for l in lang_list])
-            )
-
-    # 4. Platform (Fuzzy Match, supports comma-separated)
-    if platform:
-        plat_list = [p.strip() for p in platform.split(",") if p.strip()]
-        if plat_list:
-            # Matches if ANY of the provided platforms match
-            conditions.append(
-                or_(*[MediaItem.platform.ilike(f"%{p}%") for p in plat_list])
-            )
-
-    # 5. Genres (JSON Containment)
-    if genres:
-        # Use .contains() for JSON/JSONB compatibility.
-        # Note: .contains() works as an AND operator for the list (Item must have ALL listed genres).
-        # We strip values to ensure "Action, Comedy" becomes ["Action", "Comedy"]
-        genres_list = [g.strip() for g in genres.split(",") if g.strip()]
-        if genres_list:
-            conditions.append(MediaItem.genres.contains(genres_list))
-
-    # 6. General Search
-    if q:
-        conditions.append(MediaItem.title.ilike(f"%{q}%"))
-
-    # Apply conditions
-    for cond in conditions:
-        stmt = stmt.where(cond)
-        count_stmt = count_stmt.where(cond)
-
-    # Get Total Count
-    total_res = await db.execute(count_stmt)
-    total = total_res.scalar_one()
-    logger.debug(f"Found {total} total items matching filters")
-
-    # Get Paginated Items
-    stmt = (
-        stmt.offset(skip)
-        .limit(limit)
-        .order_by(
-            MediaItem.streaming_date.desc().nulls_last(), MediaItem.created_at.desc()
-        )
-    )
-    result = await db.execute(stmt)
-    items = result.scalars().all()
-    logger.info(f"Returning {len(items)} items (skip={skip}, limit={limit})")
+    logger.info(f"API: Returning {len(items)} items (skip={skip}, limit={limit})")
 
     return ListResponseModel(
         data=items, meta=MetaData(total=total, limit=limit, skip=skip)
