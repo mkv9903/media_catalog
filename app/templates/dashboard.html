@@ -37,9 +37,7 @@
                 <option value="all" {% if current_status == 'all' %}selected{% endif %}>All Status</option>
                 <option value="new" {% if current_status == 'new' %}selected{% endif %}>New</option>
                 <option value="approved" {% if current_status == 'approved' %}selected{% endif %}>Approved</option>
-                <option value="processing" {% if current_status == 'processing' %}selected{% endif %}>Processing</option>
-                <option value="available" {% if current_status == 'available' %}selected{% endif %}>Available</option>
-                <option value="ignored" {% if current_status == 'ignored' %}selected{% endif %}>Ignored</option>
+                <option value="error" {% if current_status == 'error' %}selected{% endif %}>error</option>
             </select>
         </form>
     </div>
