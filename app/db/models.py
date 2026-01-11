@@ -50,6 +50,7 @@ class ScrapedItem(Base):
     year = Column(Integer, nullable=True)
     media_type = Column(String, index=True, nullable=True)
     platform = Column(String, nullable=True)
+    streaming_date = Column(Date, nullable=True, index=True)
 
     # Changed from JSON to JSONB for faster processing in Postgres
     raw_data = Column(JSON, nullable=True)
@@ -93,9 +94,10 @@ class MediaItem(Base):
     binged_url = Column(String, nullable=True)  # Link back to source if needed
     platform = Column(String, nullable=True)
 
+    streaming_date = Column(Date, nullable=True, index=True)
+
     # App State
     status = Column(String, default=MediaStatus.NEW, index=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    streaming_date = Column(Date, nullable=True, index=True)

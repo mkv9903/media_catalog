@@ -68,7 +68,7 @@ class IngestionService:
         count = await self._get_db_count(ScrapedItem, media_type)
         logger.debug(f"Current {media_type.value} count in database: {count}")
 
-        if count < 100:
+        if count < 10:
             mode = "BACKFILL"
             max_pages = settings.MAX_PAGES_BACKFILL
         else:
@@ -142,6 +142,7 @@ class IngestionService:
                     year=self._parse_safe_year(item_data.get("year")),
                     media_type=media_type.value,  # Explicitly save media_type
                     platform=item_data["platform"],
+                    streaming_date=item_data.get("streaming_date"),
                     raw_data=raw_blob,
                     scrape_status=ScrapeStatus.PENDING,
                 )
@@ -188,6 +189,9 @@ class IngestionService:
                 try:
                     # 1. Extract Data
                     raw = scraped.raw_data
+                    #                    streaming_date = scraped.streaming_date
+                    #                    if not streaming_date:
+                    #                        continue
 
                     # Prefer the explicit column, fallback to JSON for legacy
                     media_type_str = scraped.media_type or raw.get(
@@ -321,6 +325,7 @@ class IngestionService:
                             genres=match_data.get("genres", []) if match_data else [],
                             binged_url=scraped.source_url,
                             platform=scraped.platform,
+                            streaming_date=scraped.streaming_date,
                             status=(
                                 MediaStatus.APPROVED if match_data else MediaStatus.NEW
                             ),
