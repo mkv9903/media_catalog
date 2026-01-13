@@ -251,7 +251,14 @@ class IngestionService:
                         )
                         match_data = self.metadata.normalize_binged_data(raw)
                         match_data["title"] = title
+
                     # --- FALLBACK LOGIC END ---
+
+                    # --- DETERMINE TARGET STATUS ---
+                    # Default is NEW unless we have a high-quality source
+                    target_status = MediaStatus.APPROVED
+                    if match_data and match_data.get("source") == "binged_fallback":
+                        target_status = MediaStatus.NEW
 
                     # 3. Upsert MediaItem
                     existing_media = None
@@ -333,7 +340,12 @@ class IngestionService:
                         # 2. Update Source Info ONLY if newer
                         existing_media.platform = scraped.platform
                         existing_media.binged_url = scraped.source_url
-                        existing_media.status = MediaStatus.APPROVED
+
+                        # --- STATUS LOGIC ---
+                        # Only auto-approve if the source is high quality
+                        if target_status == MediaStatus.APPROVED:
+                            existing_media.status = MediaStatus.APPROVED
+
                         logger.info(f"Updated MediaItem Source: {existing_media.title}")
 
                     else:
@@ -356,9 +368,7 @@ class IngestionService:
                             binged_url=scraped.source_url,
                             platform=scraped.platform,
                             streaming_date=scraped.streaming_date,
-                            status=(
-                                MediaStatus.APPROVED if match_data else MediaStatus.NEW
-                            ),
+                            status=target_status,  # Use the determined status (NEW or APPROVED)
                         )
                         self.db.add(new_media)
                         logger.info(f"Promoted New MediaItem: {new_media.title}")
