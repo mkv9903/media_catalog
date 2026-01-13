@@ -24,11 +24,33 @@ engine = create_async_engine(
 
 
 # --- CRITICAL: Enable Foreign Keys for SQLite ---
+# --- OPTIMIZED SQLITE CONFIGURATION ---
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     if "sqlite" in settings.DATABASE_URL:
         cursor = dbapi_connection.cursor()
+
+        # 1. Enable Foreign Keys (Critical for data integrity)
         cursor.execute("PRAGMA foreign_keys=ON")
+
+        # 2. WAL Mode (Critical for performance/concurrency)
+        # Allows simultaneous readers and writers.
+        cursor.execute("PRAGMA journal_mode=WAL")
+
+        # 3. Synchronous=NORMAL
+        # In WAL mode, this is safe and much faster than FULL.
+        # It reduces the number of fsync() calls.
+        cursor.execute("PRAGMA synchronous=NORMAL")
+
+        # 4. Increase Cache Size (Optional but recommended)
+        # Sets cache to 64MB (value is in negative KB). Default is ~2MB.
+        # This speeds up reads for your 3k+ library items.
+        cursor.execute("PRAGMA cache_size=-64000")
+
+        # 5. Store Temp Tables in RAM
+        # Speeds up complex queries and filtering
+        cursor.execute("PRAGMA temp_store=MEMORY")
+
         cursor.close()
 
 
