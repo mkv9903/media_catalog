@@ -8,6 +8,7 @@ from app.db.database import get_db
 from app.db.models import MediaItem, MediaStatus, MediaType
 from app.services.metadata import MetadataService
 from app.services.db import get_filtered_items  # Import shared logic
+from app.services.db import get_filtered_items, get_library_stats
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -17,13 +18,20 @@ templates = Jinja2Templates(directory="app/templates")
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard(
+    request: Request, db: AsyncSession = Depends(get_db)
+):  # Added db dependency
     """Renders the main dashboard page."""
     logger.debug("Rendering main dashboard page")
+
+    # Fetch stats
+    stats = await get_library_stats(db)
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
+            "stats": stats,  # Pass stats to template
             "current_status": "all",
             "current_type": "all",
             "current_q": "",

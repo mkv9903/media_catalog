@@ -101,3 +101,22 @@ async def get_filtered_items(
     items = result.scalars().all()
 
     return items, total
+
+
+async def get_library_stats(db: AsyncSession) -> dict:
+    """
+    Returns a dictionary with the total count of movies and series.
+    """
+    stmt = select(MediaItem.media_type, func.count(MediaItem.id)).group_by(
+        MediaItem.media_type
+    )
+    result = await db.execute(stmt)
+
+    # Default 0 to handle empty library case
+    counts = {"movie": 0, "series": 0}
+
+    for media_type, count in result.all():
+        if media_type in counts:
+            counts[media_type] = count
+
+    return counts
