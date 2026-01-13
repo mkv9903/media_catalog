@@ -1,17 +1,37 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 import logging
 from app.core.config import settings
-from app.db.models import Base  # Import Base to access metadata for table creation
+from app.db.models import Base
 
 logger = logging.getLogger(__name__)
 
-# pool_pre_ping=True is critical for PostgreSQL.
-# It checks if the connection is alive before using it, preventing "Closed Connection" errors.
+# pool_pre_ping=True works for SQLite too; it checks if the connection is alive.
+# check_same_thread=False is needed for SQLite with asyncio.
 logger.debug(f"Creating database engine with URL: {settings.DATABASE_URL[:50]}...")
+
 engine = create_async_engine(
-    settings.DATABASE_URL, echo=False, future=True, pool_pre_ping=True
+    settings.DATABASE_URL,
+    echo=False,
+    future=True,
+    pool_pre_ping=True,
+    connect_args=(
+        {"check_same_thread": False} if "sqlite" in settings.DATABASE_URL else {}
+    ),
 )
+
+
+# --- CRITICAL: Enable Foreign Keys for SQLite ---
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if "sqlite" in settings.DATABASE_URL:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 logger.info("Database engine created successfully")
 
 AsyncSessionLocal = sessionmaker(

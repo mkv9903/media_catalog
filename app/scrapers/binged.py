@@ -93,6 +93,8 @@ class BingedScraper:
             "X-Requested-With": "XMLHttpRequest",
             "User-Agent": random.choice(self.USER_AGENTS),
         }
+        # Concurrency Control: Allow 5 concurrent requests to Binged
+        self.sem = asyncio.Semaphore(5)
 
     async def _fetch(
         self, session: aiohttp.ClientSession, url, method="GET", data=None, retries=3
@@ -160,6 +162,40 @@ class BingedScraper:
         cleaned = re.sub(r"(?i)\b(Season|S)\s*\d+.*", "", cleaned)
         return cleaned.strip()
 
+    async def _fetch_details_concurrently(
+        self, session: aiohttp.ClientSession, item: Dict
+    ) -> Optional[str]:
+        """
+        Helper task to fetch IMDB details.
+        Uses semaphore to limit concurrency and preserves original logging.
+        """
+        async with self.sem:
+            binged_imdb_id = None
+            item_id = item.get("id")
+            title = item.get("title", "Unknown")
+
+            if item_id:
+                logger.debug(f"Fetching IMDB for item ID {item_id}")
+                # Sleep removed to improve speed (concurrency limits rate instead)
+
+                api_url = (
+                    f"https://www.binged.com/wp-json/binged-api/v1/movie/{item_id}"
+                )
+                detail_data = await self._fetch(session, api_url)
+                if detail_data and "imdb" in detail_data:
+                    imdb_value = detail_data["imdb"]
+                    if imdb_value and imdb_value.strip():
+                        binged_imdb_id = imdb_value.strip()
+                        logger.debug(f"Found IMDB ID: {binged_imdb_id}")
+                    else:
+                        logger.debug("No IMDB ID found in API response")
+                else:
+                    logger.warning(f"Failed to fetch API data for item {item_id}")
+            else:
+                logger.warning(f"No item ID found for {title}")
+
+            return binged_imdb_id
+
     async def scrape_page(
         self, session: aiohttp.ClientSession, page_number: int, category: str = "movie"
     ) -> List[Dict]:
@@ -195,8 +231,13 @@ class BingedScraper:
             return []
 
         logger.debug(f"Received {len(data['data'])} items from AJAX")
+
+        # 1. Prepare items and tasks
+        valid_items = []
+        tasks = []
+
         for item in data["data"]:
-            # 1. GENRE FILTERING
+            # GENRE FILTERING
             genres_str = item.get("genre", "")
             if genres_str:
                 genres_lower = genres_str.lower()
@@ -210,33 +251,22 @@ class BingedScraper:
 
             # Basic Info
             title = item.get("title", "Unknown")
-            raw_url = item.get("link", "")
             logger.debug(f"Processing item: {title}")
+
+            valid_items.append(item)
+            tasks.append(self._fetch_details_concurrently(session, item))
+
+        # 2. Execute tasks concurrently
+        # This replaces the sequential sleep/fetch loop
+        imdb_ids = await asyncio.gather(*tasks)
+
+        # 3. Assemble Results
+        for item, binged_imdb_id in zip(valid_items, imdb_ids):
+            title = item.get("title", "Unknown")
+            raw_url = item.get("link", "")
 
             # EXTRACT LANGUAGES
             languages = item.get("languages", "")
-
-            # Fetch details from new API
-            binged_imdb_id = None
-            item_id = item.get("id")
-            if item_id:
-                logger.debug(f"Fetching IMDB for item ID {item_id}")
-                await asyncio.sleep(0.5)  # Increased delay to avoid rate limits
-                api_url = (
-                    f"https://www.binged.com/wp-json/binged-api/v1/movie/{item_id}"
-                )
-                detail_data = await self._fetch(session, api_url)
-                if detail_data and "imdb" in detail_data:
-                    imdb_value = detail_data["imdb"]
-                    if imdb_value and imdb_value.strip():
-                        binged_imdb_id = imdb_value.strip()
-                        logger.debug(f"Found IMDB ID: {binged_imdb_id}")
-                    else:
-                        logger.debug("No IMDB ID found in API response")
-                else:
-                    logger.warning(f"Failed to fetch API data for item {item_id}")
-            else:
-                logger.warning(f"No item ID found for {title}")
 
             # Platform
             platform_ids = item.get("platform", [])

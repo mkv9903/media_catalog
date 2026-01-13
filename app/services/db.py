@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, or_, cast, String
+from sqlalchemy import func, or_, cast, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from typing import Optional, List, Tuple
 import logging
 from app.db.models import MediaItem
@@ -21,10 +22,6 @@ async def get_filtered_items(
 ) -> Tuple[List[MediaItem], int]:
     """
     Shared business logic to filter and retrieve media items.
-    Used by both the REST API (endpoints.py) and the Web Dashboard (dashboard.py).
-
-    Returns:
-        Tuple[List[MediaItem], int]: (List of items, Total count matching filters)
     """
     logger.debug(
         f"Filtering items via DB Service: skip={skip}, limit={limit}, status={status}, type={media_type}, q={q}"
@@ -46,7 +43,7 @@ async def get_filtered_items(
         if type_list:
             conditions.append(MediaItem.media_type.in_(type_list))
 
-    # 3. Language (Fuzzy Match, supports comma-separated)
+    # 3. Language (Fuzzy Match)
     if language:
         lang_list = [l.strip() for l in language.split(",") if l.strip()]
         if lang_list:
@@ -54,7 +51,7 @@ async def get_filtered_items(
                 or_(*[MediaItem.language.ilike(f"%{l}%") for l in lang_list])
             )
 
-    # 4. Platform (Fuzzy Match, supports comma-separated)
+    # 4. Platform (Fuzzy Match)
     if platform:
         plat_list = [p.strip() for p in platform.split(",") if p.strip()]
         if plat_list:
@@ -62,15 +59,15 @@ async def get_filtered_items(
                 or_(*[MediaItem.platform.ilike(f"%{p}%") for p in plat_list])
             )
 
-    # 5. Genres (String Cast Search)
-    # Using cast(String) is the safest way to support both SQLite and PostgreSQL
-    # (whether the column is JSON or JSONB) without complex dialect checks or migration issues.
+    # 5. Genres (Universal Text Search)
+    # Handles comma-separated values (e.g., "Action, Comedy")
     if genres:
         genres_list = [g.strip() for g in genres.split(",") if g.strip()]
         for genre in genres_list:
-            # We search for the genre enclosed in quotes to match the JSON string representation
-            # e.g., '["Action", "Comedy"]' contains '"Comedy"'
-            conditions.append(cast(MediaItem.genres, String).ilike(f'%"{genre}"%'))
+            # FIX: Cast to Text universally.
+            # This works on both SQLite and Postgres and avoids JSON syntax errors.
+            # We search for "Genre" (with quotes) to ensure we match the exact JSON string.
+            conditions.append(cast(MediaItem.genres, Text).ilike(f'%"{genre}"%'))
 
     # 6. General Search (Title OR IDs)
     if q and q.strip():
