@@ -142,9 +142,4 @@ if __name__ == "__main__":
 
     logger.info("Starting MediaFlow API with uvicorn...")
     # Start the application
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload_excludes=["data/*"],
-    )
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
