@@ -162,46 +162,45 @@ class BingedScraper:
         cleaned = re.sub(r"(?i)\b(Season|S)\s*\d+.*", "", cleaned)
         return cleaned.strip()
 
-    async def _fetch_details_concurrently(
+    async def _fetch_item_details(
         self, session: aiohttp.ClientSession, item: Dict
-    ) -> Optional[str]:
+    ) -> Optional[Dict]:
         """
-        Helper task to fetch IMDB details.
-        Uses semaphore to limit concurrency and preserves original logging.
+        Helper task to fetch FULL details for a single item concurrently.
+        Returns the entire dictionary (with images, plot, etc) if found.
         """
         async with self.sem:
-            binged_imdb_id = None
             item_id = item.get("id")
             title = item.get("title", "Unknown")
 
             if item_id:
-                logger.debug(f"Fetching IMDB for item ID {item_id}")
-                # Sleep removed to improve speed (concurrency limits rate instead)
+                logger.debug(f"Fetching Details for item ID {item_id}")
 
                 api_url = (
                     f"https://www.binged.com/wp-json/binged-api/v1/movie/{item_id}"
                 )
                 detail_data = await self._fetch(session, api_url)
-                if detail_data and "imdb" in detail_data:
-                    imdb_value = detail_data["imdb"]
-                    if imdb_value and imdb_value.strip():
-                        binged_imdb_id = imdb_value.strip()
-                        logger.debug(f"Found IMDB ID: {binged_imdb_id}")
+
+                if detail_data:
+                    # Log IMDB finding specifically to match original logging behavior
+                    if "imdb" in detail_data and detail_data["imdb"]:
+                        logger.debug(f"Found IMDB ID: {detail_data['imdb']}")
                     else:
                         logger.debug("No IMDB ID found in API response")
+
+                    return detail_data
                 else:
                     logger.warning(f"Failed to fetch API data for item {item_id}")
             else:
                 logger.warning(f"No item ID found for {title}")
 
-            return binged_imdb_id
+            return None
 
     async def scrape_page(
         self, session: aiohttp.ClientSession, page_number: int, category: str = "movie"
     ) -> List[Dict]:
         """
-        Scrapes a SINGLE page (50 items) defined by page_number (0-indexed).
-        Uses the provided session for better performance.
+        Scrapes a SINGLE page (50 items) concurrently.
         """
         logger.debug(f"Starting scrape for page {page_number}, category: {category}")
         results = []
@@ -254,21 +253,28 @@ class BingedScraper:
             logger.debug(f"Processing item: {title}")
 
             valid_items.append(item)
-            tasks.append(self._fetch_details_concurrently(session, item))
+            # Create concurrent task
+            tasks.append(self._fetch_item_details(session, item))
 
-        # 2. Execute tasks concurrently
-        # This replaces the sequential sleep/fetch loop
-        imdb_ids = await asyncio.gather(*tasks)
+        # 2. Parallel Execution: Run all detail fetches at once
+        # Returns a list of detail_dictionaries (or None)
+        details_results = await asyncio.gather(*tasks)
 
         # 3. Assemble Results
-        for item, binged_imdb_id in zip(valid_items, imdb_ids):
+        for item, detail_data in zip(valid_items, details_results):
+            # MERGE LOGIC: Update the item with rich data if available
+            if detail_data:
+                item.update(detail_data)
+
             title = item.get("title", "Unknown")
             raw_url = item.get("link", "")
 
-            # EXTRACT LANGUAGES
-            languages = item.get("languages", "")
+            # Extract IMDB (now from the merged data)
+            binged_imdb_id = None
+            if "imdb" in item and item["imdb"]:
+                binged_imdb_id = item["imdb"].strip()
 
-            # Platform
+            # Platform extraction
             platform_ids = item.get("platform", [])
             platform_name = "Other"
             if isinstance(platform_ids, list):
@@ -278,7 +284,7 @@ class BingedScraper:
                         platform_name = self.PLATFORM_MAPPING[match.group(1)]
                         break
 
-            # Extract Date
+            # Date extraction
             raw_date = (
                 item.get("streaming-date")
                 or item.get("release-date")
@@ -294,6 +300,9 @@ class BingedScraper:
                     except (ValueError, TypeError):
                         continue
 
+            # Extract Languages
+            languages = item.get("languages", "")
+
             results.append(
                 {
                     "title": self._clean_title(title),
@@ -303,7 +312,7 @@ class BingedScraper:
                     "platform": platform_name,
                     "streaming_date": streaming_date,
                     "languages": languages,
-                    "raw_data": item,
+                    "raw_data": item,  # Contains the FULL merged rich data
                 }
             )
 

@@ -35,6 +35,40 @@ class MetadataService:
             async with aiohttp.ClientSession() as session:
                 yield session
 
+    # --- NEW HELPER METHOD ---
+    def normalize_binged_data(self, raw_data: Dict) -> Dict:
+        """
+        Converts raw Binged JSON into a standard metadata format.
+        Used as a fallback when TMDB/Cinemeta fails.
+        """
+        logger.info(f"Normalizing Binged data for: {raw_data.get('title')}")
+
+        # 1. Parse Year
+        year = 0
+        try:
+            if raw_data.get("release_year"):
+                year = int(raw_data["release_year"])
+        except (ValueError, TypeError):
+            pass
+
+        # 2. Parse Genres
+        genres = []
+        if isinstance(raw_data.get("genre"), list):
+            genres = [g.replace("&amp;", "&").strip() for g in raw_data["genre"]]
+
+        return {
+            "tmdb_id": None,  # Binged does not provide TMDB IDs
+            "imdb_id": raw_data.get("imdb", "").strip() or None,
+            # CHANGED: Prefer 'title' (from listing/DB) over 'post_title'
+            "title": raw_data.get("title") or raw_data.get("post_title"),
+            "year": year,
+            "overview": raw_data.get("post_content", ""),  # The description!
+            "poster_url": raw_data.get("image"),  # The high-res image!
+            "backdrop_url": None,
+            "genres": genres,
+            "source": "binged_fallback",
+        }
+
     async def _fetch(
         self,
         session: aiohttp.ClientSession,

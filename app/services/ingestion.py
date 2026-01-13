@@ -121,11 +121,9 @@ class IngestionService:
             logger.debug(f"Saved {activity} items from a page")
 
             # Maintenance mode optimization: stop if we find a page with 0 updates
-            # Note: This is slightly less effective in concurrent mode as we might have already fetched next pages
             if mode == "MAINTENANCE" and activity == 0:
                 logger.info("Maintenance Scan: No new items found in this batch.")
-                # We don't break here because other concurrent tasks are running,
-                # but we acknowledge we aren't finding new stuff.
+                # We don't break here because other concurrent tasks are running
 
         logger.info(
             f"Scrape Phase Summary ({media_type.value}): Found {total_items_found} items, Saved/Updated {new_items_saved}"
@@ -218,11 +216,7 @@ class IngestionService:
                 try:
                     # 1. Extract Data
                     raw = scraped.raw_data
-                    #                    streaming_date = scraped.streaming_date
-                    #                    if not streaming_date:
-                    #                        continue
 
-                    # Prefer the explicit column, fallback to JSON for legacy
                     media_type_str = scraped.media_type or raw.get(
                         "inferred_type", "movie"
                     )
@@ -250,8 +244,14 @@ class IngestionService:
                             title, year, media_type
                         )
 
+                    # --- FALLBACK LOGIC START ---
                     if not match_data:
-                        logger.warning(f"No Metadata Match found for: {title} ({year})")
+                        logger.info(
+                            f"TMDB/Cinemeta failed for '{title}'. Using Binged data as fallback."
+                        )
+                        match_data = self.metadata.normalize_binged_data(raw)
+                        match_data["title"] = title
+                    # --- FALLBACK LOGIC END ---
 
                     # 3. Upsert MediaItem
                     existing_media = None
